@@ -1,0 +1,9 @@
+{
+  "total_time" : 300,
+  "height" : 200,
+  "width" : 100,
+  "cell_size" : 0.01,
+  "alpha" : 0.2,
+  "beta" : 0,
+  "gamma" : 0.1
+}
