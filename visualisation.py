@@ -2,7 +2,6 @@ import matplotlib
 import numpy as np
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
-from scipy.ndimage import gaussian_filter
 
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
@@ -35,7 +34,7 @@ class Visualize(object):
         self.cax = make_axes_locatable(self.ax1).append_axes("right", size="5%", pad="2%")
         self.cax.set_xlabel('hoi')
         self.grid = np.empty((self.model.width, self.model.height))
-        for cell in self.model.grid.flatten():
+        for cell in self.model.allVegetation:
             self.grid[cell.pos] = cell.biomass
 
         # self.gridtext = [
@@ -46,7 +45,7 @@ class Visualize(object):
         self.update()
 
     def update(self):
-        for cell in self.model.grid.flatten():
+        for cell in self.model.allVegetation:
             self.grid[cell.pos] = cell.biomass
 
         # removing old colorbar, updating grid and plotting new colorbar
@@ -62,8 +61,21 @@ class Visualize(object):
         # ]
 
         # plotting biomass
-        x = range(len(self.model.data['biomass']))
-        self.ax2.errorbar(x, self.model.data['biomass'], yerr = self.model.data['biomass_std'])
+        x = range(len(self.model.data['biom_R']))
+        self.ax2.errorbar(x, self.model.data['biom_R'], yerr = self.model.data['biom_R_std'], label = "RL")
+        self.ax2.errorbar(x, self.model.data['biom_B'], yerr = self.model.data['biom_B_std'], label = "BR")
+        self.ax2.legend()
+
+        # p = self.model.BR
+        # K, m, r_bb, r_br = p["K"], p["m"], p["r_ib"], p["r_ir"]
+        # def f(biom_R):
+        #     a = K/2*(1-m-r_bb)
+        #     b = a**2 - 4 * K * r_br * np.array(biom_R)
+        #     return a + np.sqrt(b), a - np.sqrt(b)
+        # c1, c2 = f(self.model.data['biom_R'])
+        # self.ax2.plot(c1)
+        # self.ax2.plot(c2)
+
 
         # self.ax2.errorbar(x, self.model.data['comp'], yerr = self.model.data['comp_std'],label = 'Competition')
         # self.ax2.errorbar(x, self.model.data['conn'], yerr = self.model.data['conn_std'], label = 'Connectivity')

@@ -15,15 +15,17 @@ from growth import get_FL
 # }
 
 class Model(object):
-    def __init__(self, plot, params_model, params_RL, params_BR, patch_shape):
+    def __init__(self, plot, params_model, params_RL, params_BR, patch_shape, coordinates):
         self.params = params_model
         self.BR = params_BR
         self.RL = params_RL
         self.patch_shape = patch_shape
+        self.coordinates = coordinates
 
         self.time = 0
         self.data = {
-            'biomass' : [], 'biomass_std' : [],
+            'biom_R' : [], 'biom_R_std' : [],
+            'biom_B' : [], 'biom_B_std' : [],
             'pos' : [], 'pos_std' : [],
             'comp' : [], 'comp_std' : [],
             'conn' : [], 'conn_std' : [],
@@ -33,17 +35,12 @@ class Model(object):
         # initiate grids
         self.height, self.width = params_model["height"], params_model["width"]
         self.grid = np.empty((self.width, self.height), dtype=Cell)
+        self.vegetation = {'BR' : [], 'RL' : []}
 
         # initiate patches
         for patch in plot:
             self.addCells(patch['x'], patch['y'], patch['type'], patch['id'], patch['data'])
-
-        # initiate soil cells
-        self.coordinates = list(product(range(self.width), range(self.height)))
-        for n, coor in enumerate(self.coordinates):
-            if self.grid[coor] == None:
-                new_cell = Cell(self, self.grid, coor, 'soil')
-                self.grid[coor] = new_cell
+        self.allVegetation = self.grid.flat[self.grid.flat != None]
 
         # initiate diffusion matrices
         self.RL_diff = np.zeros((self.width, self.height))
@@ -62,56 +59,58 @@ class Model(object):
         '''
 
         self.time += 1
+        self.allVegetation = self.vegetation['BR'] + self.vegetation['RL']
         self.diffuse_biomass()
-        for cell in self.grid.flatten():
-            cell.step()
+        for cell in self.allVegetation:
+            cell.step_cell()
         self.updateConnectivity()
         self.collect_data()
 
     def updateConnectivity(self):
-        # TODO: Check how much computational power this uses
-
         # Collect all flowlengths
         self.FL_diff = np.zeros((self.width, self.height))
-        for cell in self.grid.flatten():
-            if cell.cell_type == "BR" or cell.cell_type == "RL":
-                this_x, this_y = cell.pos
-                cell.upslope = this_y
-                self.FL_diff[cell.pos] = get_FL(cell.upslope)
-                for y in reversed(range(this_y)):
-                    upslopeCell = self.grid[this_x][y].cell_type
-                    if upslopeCell == "BR" or upslopeCell == "RL":
-                        cell.upslope -= y
-                        self.FL_diff[cell.pos] = get_FL(cell.upslope)
-                        break
+        for cell in self.allVegetation:
+            this_x, this_y = cell.pos
+            cell.upslope = this_y
+            for y in reversed(range(this_y)):
+                upslopeCell = self.grid[this_x][y]
+                if upslopeCell != None:
+                    cell.upslope -= y
+                    break
+            self.FL_diff[cell.pos] = cell.upslope
+        self.FL_diff = get_FL(self.FL_diff)
 
         # Diffuse flowlengths over 2 sigma = 3 cells
         self.FL_diff = gaussian_filter(self.FL_diff, sigma= 3 / 2)
-        for cell in self.grid.flatten():
-            if cell.cell_type != 'soil':
-                cell.FL = self.FL_diff[cell.pos]
 
-        # Compute the total flowlength of the plot
-        self.FL = sum([cell.FL for cell in self.grid.flatten()])
+        # Safe all flowlengths correctly
+        self.FL = 0
+        for cell in self.allVegetation:
+            cell.FL = self.FL_diff[cell.pos]
+            self.FL += cell.FL
 
     def collect_data(self):
-        biomass = np.mean([cell.biomass for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        comp = np.mean([1 - cell.grow_comp / cell.biomass for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        pos = np.mean([cell.grow_pos for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        conn = np.mean([cell.grow_conn for cell in self.grid.flatten() if cell.cell_type != 'soil'])
+        biom_R = np.mean([cell.biomass for cell in self.vegetation["RL"]])
+        biom_B = np.mean([cell.biomass for cell in self.vegetation["BR"]])
+        comp = np.mean([1 - cell.grow_comp / cell.biomass for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        pos = np.mean([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        conn = np.mean([cell.grow_conn for cell in self.vegetation["BR"] + self.vegetation["RL"]])
 
-        nr_cells = len([cell.grow_pos for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        biomass_std = np.std([cell.biomass for cell in self.grid.flatten()])
-        comp_std = np.std([1 - cell.grow_comp / cell.biomass for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        pos_std = np.std([cell.grow_pos for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        conn_std = np.std([cell.grow_conn for cell in self.grid.flatten() if cell.cell_type != 'soil'])
-        percent = np.mean([cell.grow_percent for cell in self.grid.flatten() if cell.cell_type != 'soil'])
+        nr_cells = len([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        biom_R_std = np.std([cell.biomass for cell in self.vegetation["RL"]])
+        biom_B_std = np.std([cell.biomass for cell in self.vegetation["BR"]])
+        comp_std = np.std([1 - cell.grow_comp / cell.biomass for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        pos_std = np.std([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        conn_std = np.std([cell.grow_conn for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        percent = np.mean([cell.grow_percent for cell in self.vegetation["BR"] + self.vegetation["RL"]])
 
-        self.data['biomass'].append(biomass)
+        self.data['biom_R'].append(biom_R)
+        self.data['biom_B'].append(biom_B)
         self.data['comp'].append(comp)
         self.data['pos'].append(pos)
         self.data['conn'].append(conn)
-        self.data['biomass_std'].append(biomass_std  / np.sqrt(nr_cells))
+        self.data['biom_R_std'].append(biom_R_std  / np.sqrt(nr_cells))
+        self.data['biom_B_std'].append(biom_B_std  / np.sqrt(nr_cells))
         self.data['comp_std'].append(comp_std  / np.sqrt(nr_cells))
         self.data['pos_std'].append(pos_std  / np.sqrt(nr_cells))
         self.data['conn_std'].append(conn_std / np.sqrt(nr_cells))
@@ -124,12 +123,10 @@ class Model(object):
 
     def diffuse_biomass(self):
         # Collect actual biomasses for both species
-        for i, j in self.coordinates:
-            cell = self.grid[i, j]
-            if cell.cell_type == 'RL':
-                self.RL_diff[i, j] = cell.biomass
-            if cell.cell_type == 'BR':
-                self.BR_diff[i, j] = cell.biomass
+        for cell in self.vegetation['RL']:
+            self.RL_diff[cell.pos] = cell.biomass
+        for cell in self.vegetation['BR']:
+            self.BR_diff[cell.pos] = cell.biomass
 
         # Diffuse biomasses over the grid
         cs = self.params["cell_size"]
@@ -142,3 +139,4 @@ class Model(object):
             coor = x_ref + x_pert, y_ref + y_pert
             new_cell = Cell(self, self.grid, coor, cell_type, id, has_data)
             self.grid[coor] = new_cell
+            self.vegetation[cell_type].append(new_cell)

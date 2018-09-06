@@ -3,7 +3,6 @@ from numpy.random.mtrand import lognormal
 
 from growth import f_pos, f_conn, f_comp
 
-
 class Cell(object):
     def __init__(self, model, grid, pos, cell_type, patch = 0, has_data = False):
         self.model = model
@@ -27,13 +26,12 @@ class Cell(object):
         else:
             self.biomass = 0
 
-    def step(self):
-        self.age += 1
-        if self.cell_type == "RL":
-            self.grow()
+    def step_cell(self):
+        self.grow()
         if self.cell_type == "BR":
-            self.grow()
             self.clone()
+        if self.biomass < 0:
+            self.die()
 
     def grow(self):
         # Get right parameters
@@ -56,14 +54,11 @@ class Cell(object):
         dB_dt = self.biomass * self.grow_percent - self.grow_comp
         self.biomass += dB_dt
 
-        if self.biomass < 0:
-            self.die()
-
     def clone(self):
         prob = self.biomass * self.params["seed_prob"]
 
         if np.random.random() < prob:
-            grid_size = 1 / self.model.width
+            grid_size = self.params["cell_size"]
             angle = np.random.random() * 2 * np.pi
             mean, sigma = self.params["seed_mean"], self.params["seed_sigma"]
             dist = lognormal(mean, sigma) * mean
@@ -71,12 +66,13 @@ class Cell(object):
             x_disp = int(np.sin(angle) * dist / grid_size)
             y_disp = int(np.cos(angle) * dist / grid_size)
             x, y = self.pos
-            if not (x_disp == 0 and y_disp == 0):
-                new_x, new_y = x + x_disp, y + y_disp
-                if new_x in range(self.model.width) and new_y in range(self.model.height):
-                    cell = self.grid[new_x][new_y]
-                    if not (cell.cell_type == "BR" or cell.cell_type == "RL"):
-                        cell.make_BR_clone(self)
+            new_x, new_y = x + x_disp, y + y_disp
+            if new_x >= 0 and new_x < self.model.width and new_y >= 0 and new_y < self.model.height:
+                new_pos = new_x, new_y
+                if self.grid[new_pos] == None:
+                    new_cell = Cell(self.model, self.grid, new_pos, "BR", patch = self.patch)
+                    self.grid[new_pos] = new_cell
+                    self.model.vegetation["BR"].append(new_cell)
 
     def make_BR_clone(self, parent):
         self.patch = parent.patch
@@ -86,6 +82,8 @@ class Cell(object):
         self.biomass = self.params["biom"]
 
     def die(self):
-        self.cell_type = 'soil'
-        self.biomass = 0
-        self.patch = 0
+        veg_list = self.model.vegetation[self.cell_type]
+        for i, cell in enumerate(veg_list):
+            if cell == self:
+                del veg_list[i]
+                break
