@@ -4,7 +4,7 @@ from numpy.random.mtrand import lognormal
 from growth import f_pos, f_conn, f_comp
 
 class Cell(object):
-    def __init__(self, model, grid, pos, cell_type, patch = 0, has_data = False):
+    def __init__(self, model, grid, pos, cell_type, patch, has_data=False, biomass=None):
         self.model = model
         self.grid = grid
         self.patch = patch
@@ -19,10 +19,16 @@ class Cell(object):
         self.cell_type = cell_type
         if cell_type == "BR":
             self.params = {**self.model.params, **self.model.BR}
-            self.biomass = self.params["biom"]
+            if self.model.time == 0:
+                self.biomass = self.params["biom"]
+            else:
+                self.biomass = self.params["a"]
         elif cell_type == "RL":
             self.params = {**self.model.params, **self.model.RL}
-            self.biomass = self.params["biom"]
+            if has_data:
+                self.biomass = biomass
+            else:
+                self.biomass = self.params["biom"]
         else:
             self.biomass = 0
 
@@ -36,7 +42,7 @@ class Cell(object):
     def grow(self):
         # Get right parameters
         p = self.params
-        L_ext = 1 # seasonal/rain impact
+        L_ext = float(self.model.seasonality[self.model.time]) # seasonal impact
         L = 2 # length of patches (m)
         alpha, beta, gamma = p["alpha"], p["beta"], p["gamma"]
         r_ir, r_ib, g, m, K, biom_sigma = p["r_ir"], p["r_ib"], p["g"], p["m"], p["K"], p["biom_sigma"]
@@ -75,7 +81,7 @@ class Cell(object):
                     self.model.vegetation["BR"].append(new_cell)
 
     def make_BR_clone(self, parent):
-        self.patch = parent.patch
+        self.patch = None#parent.patch
         self.age = 0
         self.cell_type = "BR"
         self.params = {**self.model.params, **self.model.BR}
