@@ -43,6 +43,7 @@ class Cell(object):
         # Get right parameters
         p = self.params
         L_ext = float(self.model.seasonality[self.model.time]) # seasonal impact
+        # TODO: figure out L_ext better?
         L = 2 # length of patches (m)
         alpha, beta, gamma = p["alpha"], p["beta"], p["gamma"]
         r_ir, r_ib, g, m, K, biom_sigma = p["r_ir"], p["r_ib"], p["g"], p["m"], p["K"], p["biom_sigma"]
@@ -50,10 +51,10 @@ class Cell(object):
 
         # Compute growth factor
         self.grow_pos = f_pos(y, alpha, L, self.model.params['cell_size'])
-        self.grow_conn = f_conn(self.FL, self.model.FL, p)
+        self.grow_conn_glob, self.grow_conn_loc = f_conn(self.FL, self.model.FL, p)
         RL_eff, BR_eff = self.model.RL_diff[self.pos], self.model.BR_diff[self.pos]
         self.grow_comp = f_comp(RL_eff, BR_eff, r_ir, r_ib)
-        r_i = self.grow_pos * self.grow_conn
+        r_i = self.grow_pos * self.grow_conn_glob * self.grow_conn_loc
 
         # Grow plant
         self.grow_percent = g * r_i * L_ext * (1 - self.biomass / K) - m

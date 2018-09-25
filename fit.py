@@ -1,13 +1,14 @@
 import copy
-from collections import defaultdict
-
+from operator import itemgetter
 import numpy as np
-
 import data
 from model import Model
 
+import matplotlib
+matplotlib.use('TkAgg')
+from matplotlib import pyplot as plt
+
 RUNOFF_RETURN = [5, 7, 9, 11, 12, 13, 14, 15, 19, 20, 21, 22]
-FL_RESOLUTION = 2
 params_model, params_RL, params_BR, patch_shape = data.get_params()
 plots = data.get_plots()
 
@@ -36,78 +37,55 @@ def run_models():
 
     return models
 
-def get_total_loss():
-    pass
+def get_total_loss(biom_data, biom_model, labels, t=0):
+    m = np.array(itemgetter(*labels)(biom_model))[:,t]
+    d = np.array(itemgetter(*labels)(biom_data))[:,t]
+
+    diff = m - d
+    print(np.nanmean(m),np.nanmean(d))
+    return np.nanmean(abs(diff))
 
 
-def alpha():
-    # set-up models
-    models = initiate_models()
+def select_patches(patches_str, models):
+    patches_obj = []
+    for model in models:
+        for p_model in model.patches:
+            if p_model in patches_str:
+                patches_obj.append(model.patches[p_model])
 
-    patch_types = ['RP', 'BP', 'MP', 'RG', 'BG', 'MG']
-    patches_return = defaultdict(list)
-    patches_no_return = defaultdict(list)
-    for key in patch_types:
-        for n, model in enumerate(models):
-            if (n + 1) in RUNOFF_RETURN:
-                patches_return[key] += model.patches[key]
-            else:
-                patches_no_return[key] += model.patches[key]
+    return patches_obj
 
-    sorted_patches = list(patches_return.values()) + list(patches_no_return.values())
-    sorted_patches_new = []
-    for category in sorted_patches:
-        # Sorting patches on FL
-        category.sort(key=lambda x: sum([cell.FL for cell in x]))
-        # Splitting category in #FL_RESOLUTION equally sized groups of patches
-        sorted_patches_new += np.array_split(category, FL_RESOLUTION)
-    sorted_patches = sorted_patches_new
-
-    # TODO: Only compare patches from same category
-
-    # return alpha
-    pass
-
-def intra_comp():
-    # set-up models
-    models = initiate_models()
-
-    # return r_rr, r_bb
-    pass
-
-def inter_comp():
-    # set-up models
-    models = initiate_models()
-
-    # return r_rb, r_br
-    pass
-
-def gamma():
-    # set-up models
-    models = initiate_models()
-
-    # return gamma
-    pass
-
-def beta():
-    # set-up models
-    models = initiate_models()
-
-    # return beta
-    pass
 
 if __name__ == '__main__':
     print('FITTING')
+    measurement_nr = 0
+    patch_factor = {
+            'RG': 6, 'BG': 6, 'MG': 3, 'RP': 2, 'BP': 2, 'MP': 1
+        }
 
     biom_data = data.get_biomass()
+    patches_str = biom_data.keys()
+    # Multiply different patches by factors to correct for that not every individual was measured
+    for label in patches_str:
+        biom_data[label] *= patch_factor[label[2:4]]
+
     biom_model = {}
     models = run_models()
     for model in models:
         biom_model.update(model.patch_data)
 
-    print(biom_model)
-    print()
-    print(biom_data)
+    # # TODO: figure out how to deal with missing Rhamnus data
+    # missing = ['05RP2*R', '10MP2*R', '17RP2*R', '18MP2*R']
+
+    patches_obj = select_patches(patches_str, models)
+
+    R_patches = [p for p in patches_str if p[-1] == 'R']
+    R_error = get_total_loss(biom_data, biom_model, R_patches, measurement_nr)
+    print("Rhamnus error: ", R_error)
+
+    P_patches = [p for p in patches_str if p[-1] == 'B']
+    P_error = get_total_loss(biom_data, biom_model, P_patches, measurement_nr)
+    print("Brachy error: ", P_error)
 
     # def getScore(models):
     #     score = 0

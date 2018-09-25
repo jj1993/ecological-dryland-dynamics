@@ -1,5 +1,7 @@
 import csv
 import json
+from collections import defaultdict
+
 from growth import get_FL
 import pandas as pd
 import numpy as np
@@ -17,7 +19,7 @@ measurement_strings = [
 ]
 measurements = [datetime.strptime(date, date_format) for date in measurement_strings]
 start_date = measurements[0]
-end_date = measurements[1]
+end_date = measurements[0]
 
 def daterange():
     for n in range((end_date - start_date).days + 1):
@@ -55,10 +57,6 @@ def get_timestamps():
 
 def get_biomass():
     fname = "../data/biom_data.csv"
-    # coordinates = csv.reader(open(fname), delimiter=',')
-    # for coordinate in coordinates:
-    #     print(coordinate)
-
     df = pd.read_csv(fname,delimiter=',', decimal=',')
     biomass_data = df.ix[:,['B1', 'B2', 'B3', 'B4', 'B5']].values
 
@@ -67,10 +65,20 @@ def get_biomass():
 
     data = {}
     for i, label in enumerate(labels):
+        # A Brachy individual contains 9 ramets, data gives biomass for only 1
+        b = biomass_data[i]
+        if label[-1] == 'B':
+            b *= 9
         if label in data:
-            data[label] += biomass_data[i]
+            for i, (d_old, d_new) in enumerate(zip(data[label], b)):
+                if d_old == np.nan:
+                    data[label][i] = d_new
+                elif d_new == np.nan:
+                    continue
+                else:
+                    data[label][i] = (d_old + d_new)/2
         else:
-            data[label] = biomass_data[i]
+            data[label] = b
 
     return data
 
@@ -78,7 +86,9 @@ def get_params():
     # load parameters
     config_model = "config_model.json"
     params_model = json.load(open(config_model))
-    params_model['FL_glob_max'] = params_model['width'] * sum([get_FL(y) for y in range(params_model['height'])])
+    # params_model['FL_glob_max'] = params_model['width'] * sum([get_FL(y) for y in range(params_model['height'])])
+    params_model['FL_glob_max'] = 135021 # Value from parameter_boundaries file
+    params_model['FL_loc_max'] = 2738 # Value from parameter_boundaries file
     config_RL = "config_RL.json"
     params_RL = json.load(open(config_RL))
     config_BR = "config_BR.json"

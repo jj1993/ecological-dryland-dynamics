@@ -1,13 +1,8 @@
 import copy
 import sys
-from itertools import product
 
 import matplotlib
 import numpy as np
-
-from scipy import optimize
-
-import fit
 
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
@@ -22,12 +17,14 @@ params_model, params_RL, params_BR, patch_shape = data.get_params()
 plots = data.get_plots()
 
 def initiate_models():
+    seasonality = data.get_seasonality()
+
     models = []
     for n, plot in enumerate(plots):
         these_params = copy.deepcopy(params_model)
         if (n + 1) in RUNOFF_RETURN:
             these_params['beta'] = 0.0
-        models.append(Model(plot, these_params, params_RL, params_BR, patch_shape))
+        models.append(Model(plot, these_params, params_RL, params_BR, patch_shape, seasonality))
 
     return models
 

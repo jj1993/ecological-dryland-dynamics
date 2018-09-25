@@ -34,7 +34,7 @@ class Model(object):
         self.vegetation = {'BR' : [], 'RL' : []}
 
         # initiate patches
-        self.patches = {'RP': [], 'BP': [], 'MP': [], 'RG': [], 'BG': [], 'MG': []}
+        self.patches = defaultdict(list)
         for patch in plot:
             self.addCells(patch['x'], patch['y'], patch['type'], patch['id'], patch['data'])
         self.allVegetation = self.grid.flat[self.grid.flat != None]
@@ -45,10 +45,6 @@ class Model(object):
 
         # initiate local and global connectivity measures
         self.updateConnectivity()
-
-        # # run startup procedure and collect initial data
-        # self.startup()
-        # self.collect_data()
 
     def step(self, day):
         '''
@@ -92,7 +88,7 @@ class Model(object):
         """
         data = defaultdict(float)
         for cell in self.allVegetation:
-            if cell.has_data and cell.cell_type[0] == 'R':
+            if cell.has_data:
                 label = cell.patch + cell.cell_type[0]
                 data[label] += cell.biomass
 
@@ -132,10 +128,6 @@ class Model(object):
         self.data['percent'].append(percent)
         # TODO: Collect mortality and reproduction
 
-    def startup(self):
-        # Startup procedure doesn't seem necessary in this model
-        pass
-
     def diffuse_biomass(self):
         # Collect actual biomasses for both species
         for cell in self.vegetation['RL']:
@@ -152,7 +144,7 @@ class Model(object):
         biomass_data = data.get_biomass()
 
         patch = self.patch_shape[patch_type]
-        patch_cells = []
+        RL_cells, BR_cells = [], []
         for x_pert, y_pert, cell_type in patch:
             coor = x_ref + 3 * x_pert, y_ref + 3 * y_pert
 
@@ -164,18 +156,20 @@ class Model(object):
                     try:
                         biomass = biomass_data[label][0]
                     except:
+                        # TODO: find out where rhamnus went
                         biomass = self.RL["biom"]
-                        print(label)
                 new_cell = Cell(self, self.grid, coor_ext, cell_type, id, has_data, biomass)
                 self.grid[coor_ext] = new_cell
                 self.vegetation[cell_type].append(new_cell)
-                patch_cells.append(new_cell)
+                RL_cells.append(new_cell)
+
             if cell_type == "BR":
                 for ext in product(range(3), range(3)):
                     coor_ext = tuple(map(sum, zip(coor, ext)))
                     new_cell = Cell(self, self.grid, coor_ext, cell_type, id, has_data)
                     self.grid[coor_ext] = new_cell
                     self.vegetation[cell_type].append(new_cell)
-                    patch_cells.append(new_cell)
+                    BR_cells.append(new_cell)
 
-        self.patches[patch_type].append(patch_cells)
+        self.patches[id+'R'] = RL_cells
+        self.patches[id+'B'] = BR_cells
