@@ -52,12 +52,11 @@ class Visualize(object):
         # ]
 
     def onpick(self, event):
-
         N = len(event.ind)
         if not N: return True
 
         # Collect all cells from patch
-        patch = self.model.allVegetation[event.ind[0]].patch
+        patch = self.model.allVegetation[event.ind[0]].id
         cells = [cell for cell in self.model.allVegetation if cell.patch == patch]
 
         # Draw patch specific info
@@ -69,8 +68,9 @@ class Visualize(object):
 
     def update(self):
         self.grid = np.zeros((self.model.width, self.model.height))
-        for cell in self.model.allVegetation:
-            self.grid[cell.pos] = cell.biomass
+        for cell in self.model.vegetation["BR"]:
+            if cell.biomass >= 0.2171:
+                self.grid[cell.pos] = cell.biomass
 
         # removing old colorbar, updating grid and plotting new colorbar
         self.cax.clear()
@@ -95,8 +95,8 @@ class Visualize(object):
 
         # plotting biomass
         x = range(len(self.model.data['biom_R']))
-        self.ax2.errorbar(x, self.model.data['biom_R'], yerr = self.model.data['biom_R_std'], label = "RL")
-        self.ax2.errorbar(x, self.model.data['biom_B'], yerr = self.model.data['biom_B_std'], label = "BR")
+        self.ax2.errorbar(x, self.model.data['biom_R'], yerr = self.model.data['biom_R_std'], label = "RL (%i)"%len(self.model.vegetation["RL"]))
+        self.ax2.errorbar(x, self.model.data['biom_B'], yerr = self.model.data['biom_B_std'], label = "BR (%i)"%len(self.model.vegetation["BR"]))
         self.ax2.legend()
 
         # p = self.model.BR

@@ -1,8 +1,7 @@
 import csv
 import json
-from collections import defaultdict
+import pickle
 
-from growth import get_FL
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
@@ -19,7 +18,7 @@ measurement_strings = [
 ]
 measurements = [datetime.strptime(date, date_format) for date in measurement_strings]
 start_date = measurements[0]
-end_date = measurements[0]
+end_date = measurements[-1]
 
 def daterange():
     for n in range((end_date - start_date).days + 1):
@@ -31,7 +30,7 @@ def get_timestep(day):
 def get_seasonality():
     fname = "../data/seasonal.csv"
 
-    df = pd.read_csv(fname,delimiter=',', decimal=',')
+    df = pd.read_csv(fname,delimiter=',', decimal='.')
     season_dict = dict(zip(
         [datetime.strptime(date, date_format) for date in df['Date']],
         df['NDVI/growth']
@@ -55,30 +54,48 @@ def get_timestamps():
 
     return measurements
 
-def get_biomass():
-    fname = "../data/biom_data.csv"
+def get_data():
+    fname = "../data/talud_data.csv"
     df = pd.read_csv(fname,delimiter=',', decimal=',')
     biomass_data = df.ix[:,['B1', 'B2', 'B3', 'B4', 'B5']].values
+    patchsize_data = df.ix[:,['D_1', 'D_2', 'D_3', 'D_4.1', 'D_5.1']].values
 
     labels_data = df.ix[:,['plot', 'patch', 'specie']].values
     labels = ["%02d%s%s*%s" % (plot, patch[1:], patch[0], species[0]) for plot, patch, species in labels_data]
+    exclusions = [(label, excl[0]) for label, excl in zip(labels, df.ix[:,['exclusion']].values)]
+    exclusions = dict(set(exclusions))
 
-    data = {}
+    biom_dict = {}
+    size_dict = {}
     for i, label in enumerate(labels):
-        # A Brachy individual contains 9 ramets, data gives biomass for only 1
+        # Update biomass dict first
         b = biomass_data[i]
+        # A Brachy individual contains 9 ramets, data gives biomass for only 1
         if label[-1] == 'B':
             b *= 9
-        if label in data:
-            for i, (d_old, d_new) in enumerate(zip(data[label], b)):
+        if label in biom_dict:
+            for i, (d_old, d_new) in enumerate(zip(biom_dict[label], b)):
                 if d_old == np.nan:
-                    data[label][i] = d_new
+                    biom_dict[label][i] = d_new
                 elif d_new == np.nan:
                     continue
                 else:
-                    data[label][i] = (d_old + d_new)/2
+                    biom_dict[label][i] = (d_old + d_new)/2
         else:
-            data[label] = b
+            biom_dict[label] = b
+
+        # Update patchsize dict
+        # TODO: how to treat patch sizes N1-N3? What to do with N4?
+        s = patchsize_data[i]
+        if label[-1] == 'B':
+            size_dict[label] = s
+
+    return biom_dict, size_dict, exclusions
+
+def get_artificial_biomass():
+    pickle_obj = open("../data/artificial_dataset.dict", "rb")
+    data = pickle.load(pickle_obj)
+    pickle_obj.close()
 
     return data
 
@@ -86,17 +103,12 @@ def get_params():
     # load parameters
     config_model = "config_model.json"
     params_model = json.load(open(config_model))
-    # params_model['FL_glob_max'] = params_model['width'] * sum([get_FL(y) for y in range(params_model['height'])])
     params_model['FL_glob_max'] = 135021 # Value from parameter_boundaries file
     params_model['FL_loc_max'] = 2738 # Value from parameter_boundaries file
-    config_RL = "config_RL.json"
-    params_RL = json.load(open(config_RL))
-    config_BR = "config_BR.json"
-    params_BR = json.load(open(config_BR))
     config_patch_shape = "patch_shape.json"
     patch_shape = json.load(open(config_patch_shape))
 
-    return params_model, params_RL, params_BR, patch_shape
+    return params_model, patch_shape
 
 def get_plots():
     fname = "../data/Coordinates_final.txt"
@@ -130,8 +142,33 @@ def get_plots():
 
     return plots
 
-def test_plot():
-    grid = np.ones((10,15))
-    grid[1,8], grid[5,8], grid[3,10] = 0.2, 0.2, 0.2
-    grid[3,8], grid[7,8], grid[5,10] = 0.6, 0.6, 0.6
-    return grid
+def assign_data(models, artificial = False):
+    # Collcet data
+    biom_data, size_data, exclusions = get_data()
+    if artificial:
+        biom_data = get_artificial_biomass()
+
+    # Collect patch objects
+    patch_objects = []
+    for model in models:
+        patch_objects += model.patches
+
+    # Assign data to patch objects
+    data_patches = []
+    for label in biom_data:
+        patch_id, cell_type = label[:-1], label[-1]
+        for patch in patch_objects:
+            if patch.id == patch_id:
+                patch.add_data(cell_type, biom_data[label])
+                if cell_type == 'B':
+                    patch.add_size(size_data[label])
+                # Check if patch has exclusion. Only use patches without exclusion
+                if exclusions[label] == 'yes':
+                    patch.exclusion = True
+                else:
+                    data_patches.append(patch)
+
+    # Removing patches that were added twice (the patches from the mixed plots have two data entries in the biomass data!)
+    data_patches = list(set(data_patches))
+
+    return data_patches

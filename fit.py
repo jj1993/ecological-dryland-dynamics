@@ -1,140 +1,143 @@
 import copy
-from operator import itemgetter
+from itertools import combinations
 import numpy as np
 import data
-from model import Model
+import subset
+from main import initiate_models, run_models
 
 import matplotlib
 matplotlib.use('TkAgg')
-from matplotlib import pyplot as plt
 
-RUNOFF_RETURN = [5, 7, 9, 11, 12, 13, 14, 15, 19, 20, 21, 22]
-params_model, params_RL, params_BR, patch_shape = data.get_params()
-plots = data.get_plots()
+def get_total_loss(patches, t):
+    RL_diff, BR_diff = [], []
+    for patch in patches:
+        if patch.RL_data[t] > 0.0:
+            RL_diff.append(np.abs((patch.RL_data[t] - patch.RL_model[t]))) # / patch.RL_data[t]
+        if patch.BR_data[t] > 0.0:
+            BR_diff.append(np.abs((patch.BR_data[t] - patch.BR_model[t]))) # / patch.BR_data[t]
 
-def initiate_models():
-    models = []
-    seasonality = data.get_seasonality()
+    return np.nanmean(RL_diff), np.nanmean(BR_diff)
 
-    for n, plot in enumerate(plots):
+def get_subset_loss(subsets, t):
+    RL_diff, BR_diff = [], []
+    for set in subsets:
+        RL_patch, BR_patch = [], []
+        for patch_i, patch_j in combinations(set, 2):
+            i_biom_R, i_biom_B = patch_i.RL_data[t], patch_i.BR_data[t]
+            i_model_R, i_model_B = patch_i.RL_model[t], patch_i.BR_model[t]
+            j_biom_R, j_biom_B = patch_j.RL_data[t], patch_j.BR_data[t]
+            j_model_R, j_model_B = patch_j.RL_model[t], patch_j.BR_model[t]
+
+            RL_patch.append(abs(
+                (i_biom_R - j_biom_R) - #/(i_biom_R + j_biom_R) -
+                (i_model_R - j_model_R) #/(i_model_R + j_model_R)
+            ))
+            BR_patch.append(abs(
+                (i_biom_B - j_biom_B) - #/(i_biom_B + j_biom_B) -
+                (i_model_B - j_model_B) #/(i_model_B + j_model_B)
+            ))
+
+        RL_diff.append(np.mean(RL_patch))
+        BR_diff.append(np.mean(BR_patch))
+
+    return np.nansum(RL_diff), np.nansum(BR_diff)
+
+def minimize_total(param, param_range, params_model, iterations, subset_nr, artificial):
+    loss_list = []
+    optimalisation_list = []
+    values = np.linspace(*param_range, iterations)
+    for value in values:
+        print("%s value: %.3f" % (param, value))
+
+        # Collect parameters for fitting
         these_params = copy.deepcopy(params_model)
-        if (n + 1) in RUNOFF_RETURN:
-            these_params['beta'] = 0.0
-        models.append(Model(plot, these_params, params_RL, params_BR, patch_shape, seasonality))
+        these_params[param] = value
 
-    return models
+        # Initiate and run models
+        models = initiate_models(these_params)
+        run_models(models)
 
-def run_models():
-    # set-up models
-    models = initiate_models()
+        # Assign data to patches
+        patches = data.assign_data(models, artificial)
 
-    for t in data.daterange():
-        print("Timestep %i" % data.get_timestep(t))
-        for model in models:
-            if t in data.measurements:
-                model.collect_data_fit()
-            model.step(t)
+        # Subset patches for parameter fitting
+        if subset_nr == 5: subset_nr = 4
+        subsets = subset.all(patches)[subset_nr]
 
-    return models
+        total_loss = get_total_loss(patches, 2)
+        optimalisation_list.append(total_loss)
 
-def get_total_loss(biom_data, biom_model, labels, t=0):
-    m = np.array(itemgetter(*labels)(biom_model))[:,t]
-    d = np.array(itemgetter(*labels)(biom_data))[:,t]
+        loss_list.append((
+            *get_total_loss(patches, 1), *get_subset_loss(subsets, 1),
+            *total_loss, *get_subset_loss(subsets, 2)
+        ))
 
-    diff = m - d
-    print(np.nanmean(m),np.nanmean(d))
-    return np.nanmean(abs(diff))
+    opt_RL, opt_BR = zip(*optimalisation_list)
+    i = opt_RL.index(min(opt_RL))
+    j = opt_BR.index(min(opt_BR))
 
+    print(opt_RL, opt_BR)
+    print(i,j)
 
-def select_patches(patches_str, models):
-    patches_obj = []
-    for model in models:
-        for p_model in model.patches:
-            if p_model in patches_str:
-                patches_obj.append(model.patches[p_model])
+    if param in ['c_rr', 'c_rb']:
+        params_model[param] = values[i]
+    elif param in ['c_bb', 'c_br']:
+        params_model[param] = values[j]
+    else:
+        params_model[param] = values[int(round((i+j)/2))]
 
-    return patches_obj
-
+    return loss_list, params_model
 
 if __name__ == '__main__':
     print('FITTING')
-    measurement_nr = 0
-    patch_factor = {
-            'RG': 6, 'BG': 6, 'MG': 3, 'RP': 2, 'BP': 2, 'MP': 1
-        }
 
-    biom_data = data.get_biomass()
-    patches_str = biom_data.keys()
-    # Multiply different patches by factors to correct for that not every individual was measured
-    for label in patches_str:
-        biom_data[label] *= patch_factor[label[2:4]]
+    artificial = True
+    fname = input('What filename would you like to save the file under?: \n')
+    comp_params = ['c_br', 'c_bb', 'c_rb', 'c_rr']
+    comp_ranges = [(0, .25), (0, .1), (0, .25), (0, .1)]
+    glob_params = ['alpha', 'gamma']
+    glob_ranges = [(0, .5), (0, .25)]
+    start_nr = 1
+    iterations = 10
 
-    biom_model = {}
-    models = run_models()
-    for model in models:
-        biom_model.update(model.patch_data)
+    params_model, _ = data.get_params()
+    for n in range(1):
+        for i, (param, param_range) in enumerate(zip(comp_params, comp_ranges)):
+            loss_list, params_model = minimize_total(param, param_range, params_model, iterations, i + 2, artificial)
+            np.savetxt('../results/' + fname +'_' + str(n + start_nr) +'_' + param, loss_list)
+            print(params_model)
+            print()
+    for n in range(1):
+        for i, (param, param_range) in enumerate(zip(glob_params, glob_ranges)):
+            loss_list, params_model = minimize_total(param, param_range, params_model, iterations, i, artificial)
+            np.savetxt('../results/' + fname +'_' + str(n + start_nr) +'_' + param, loss_list)
+            print(params_model)
+            print()
 
-    # # TODO: figure out how to deal with missing Rhamnus data
-    # missing = ['05RP2*R', '10MP2*R', '17RP2*R', '18MP2*R']
+    start_nr += 1
+    for n in range(1):
+        for i, (param, param_range) in enumerate(zip(comp_params, comp_ranges)):
+            loss_list, params_model = minimize_total(param, param_range, params_model, iterations, i + 2, artificial)
+            np.savetxt('../results/' + fname +'_' + str(n + start_nr) +'_' + param, loss_list)
+            print(params_model)
+            print()
+    for n in range(1):
+        for i, (param, param_range) in enumerate(zip(glob_params, glob_ranges)):
+            loss_list, params_model = minimize_total(param, param_range, params_model, iterations, i, artificial)
+            np.savetxt('../results/' + fname +'_' + str(n + start_nr) +'_' + param, loss_list)
+            print(params_model)
+            print()
 
-    patches_obj = select_patches(patches_str, models)
-
-    R_patches = [p for p in patches_str if p[-1] == 'R']
-    R_error = get_total_loss(biom_data, biom_model, R_patches, measurement_nr)
-    print("Rhamnus error: ", R_error)
-
-    P_patches = [p for p in patches_str if p[-1] == 'B']
-    P_error = get_total_loss(biom_data, biom_model, P_patches, measurement_nr)
-    print("Brachy error: ", P_error)
-
-    # def getScore(models):
-    #     score = 0
-    #     for model in models:
-    #         biom = model.data['biom_B'][-1]
-    #         score += (biom - 30) ** 2
-    #     return score
+    # iterations = 10
+    # start_nr = 1
     #
+    # fname = input('What filename would you like to save the file under?: \n')
+    # parameters = ['alpha', 'beta', 'gamma', 'c_rr', 'c_bb', 'c_br', 'c_rb']
+    # ranges = [(0, .3), (0, .1), (0, .1), (0, .3), (0, .15), (0, .15), (0, .25)]
     #
-    # def fun(test_params):
-    #     print("Running new test...")
-    #     alpha, beta, gamma, r_br, r_bb, r_rr, r_rb = test_params
-    #     params_model["total_time"] = timesteps
-    #     params_model["alpha"], params_model["beta"], params_model["gamma"] = alpha, beta, gamma
-    #     params_BR["r_ir"], params_BR["r_ib"] = r_br, r_bb
-    #     params_RL["r_ir"], params_RL["r_ib"] = r_rr, r_rb
-    #
-    #     models = []
-    #     for plot in plots:
-    #         models.append(Model(plot, params_model, params_RL, params_BR, patch_shape, coordinates))
-    #
-    #     for t in range(params_model["total_time"]):
-    #         if t % 10 == 0:
-    #             print("Timestep %i" % t)
-    #         for model in models:
-    #             model.step()
-    #
-    #     score = getScore(models)
-    #     print(score, test_params)
-    #     return score
-    #
-    #
-    # def print_fun(x, f, accepted):
-    #     print("at minimum %.4f accepted %d" % (f, int(accepted)))
-    #
-    #
-    # class MyBounds(object):
-    #     def __init__(self, x_min, x_max):
-    #         self.xmin = np.array(x_min)
-    #         self.xmax = np.array(x_max)
-    #
-    #     def __call__(self, **kwargs):
-    #         x = kwargs["x_new"]
-    #         tmin = bool(np.all(x >= self.xmin))
-    #         tmax = bool(np.all(x <= self.xmax))
-    #         return tmin and tmax
-    #
-    #
-    # mybounds = MyBounds(x_min, x_max)
-    # res = optimize.basinhopping(fun, x0, T=100, stepsize=50, niter=5, callback=print_fun,
-    #                             accept_test=mybounds)  # method='Nelder-Mead', options={'maxiter':50})
-    # print(res.x)
+    # for n in range(4):
+    #     for i, (param, param_range) in enumerate(zip(parameters, ranges)):
+    #         if i in [3, 4, 5, 6]: # competition terms
+    #             total_error = []
+    #             loss_list = minimize_test(param, param_range, iterations, i)
+    #             np.savetxt('../results/' + fname +'_' + str(n + start_nr) +'_' + param, loss_list)

@@ -4,7 +4,7 @@ import matplotlib
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
 
-biomasses = data.get_biomass()
+biomasses, *_ = data.get_data()
 data = []
 for label in biomasses.keys():
     if label[-1] == "R":
