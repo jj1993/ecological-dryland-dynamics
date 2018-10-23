@@ -122,6 +122,11 @@ class Cell(object):
         if self.biomass < .25 * self.max_biomass:
             self.patch.remove_cell(self)
 
+    def step_cell(self):
+        self.age += 1
+        self.grow()
+        self.die()
+
 class BR_cell(Cell):
     def __init__(self, model, grid, pos, patch_id, has_data=False, biomass=None):
         super().__init__(model, grid, pos, patch_id, has_data)
@@ -153,12 +158,13 @@ class BR_cell(Cell):
                 if self.grid[new_pos] == None:
                     new_cell = BR_cell(self.model, self.grid, new_pos, self.id)
                     self.patch.add_clone(new_cell)
+                    return new_cell
 
-    def step_cell(self):
-        self.age += 1
-        self.grow()
-        self.clone()
-        self.die()
+    def update_params(self):
+        # Function to update params when changed in the interactive visualisation
+        p = self.model.params
+        self.alpha, self.beta, self.gamma = p["alpha"], p["beta"], p["gamma"]
+        self.c_ir, self.c_ib = p["c_br"], p["c_bb"]
 
 class RL_cell(Cell):
     def __init__(self, model, grid, pos, patch_id, has_data=False, biomass=None):
@@ -172,7 +178,8 @@ class RL_cell(Cell):
         self.c_ir, self.c_ib = p["c_rr"], p["c_rb"]
         self.g, self.m, self.K = p["R_g"], p["R_m"], p["R_K"]
 
-    def step_cell(self):
-        self.age += 1
-        self.grow()
-        self.die()
+    def update_params(self):
+        # Function to update params when changed in the interactive visualisation
+        p = self.model.params
+        self.alpha, self.beta, self.gamma = p["alpha"], p["beta"], p["gamma"]
+        self.c_ir, self.c_ib = p["c_rr"], p["c_rb"]

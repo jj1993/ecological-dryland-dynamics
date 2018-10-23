@@ -1,9 +1,13 @@
+from collections import defaultdict
+
 import matplotlib
 import numpy as np
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.widgets import Slider, Button, RadioButtons
 
+import data
+from data import start_date
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
 
@@ -15,72 +19,122 @@ class Visualize(object):
 
         # Starting interactive matplotlib plot
         plt.ion()
-        self.fig = plt.figure(figsize=(12, 10))
-        self.fig.suptitle("Plot %i simulation" % self.nr)
+        self.fig = plt.figure(figsize=(15, 10))
 
         # Dividing matplotlib figure into three sections
-        gs = GridSpec(3, 3)
+        gs = GridSpec(4, 3)
         self.ax1 = plt.subplot(gs[:, :-1])
-        self.ax1.set_title("Gridview")
         # self.ax1.yaxis.set_label_position("right")
-        self.ax1.set_ylabel('Biomass (g)')
-        self.ax2 = plt.subplot(gs[-1, -1])
-        self.ax2.set_title("Total biomass")
-        self.ax2.set_xlabel("Timestep")
-        self.ax2.set_ylabel("Biomass")
-        self.ax3 = plt.subplot(gs[:-1, -1])
-        self.ax3.set_title("Effective biomass view")
-
-        # Define an action for modifying the line when any slider's value changes
-        def sliders_on_changed(val):
-            self.nr = int(val)
-            self.model = self.models[self.nr - 1]
-            self.update()
-            self.fig.canvas.draw_idle()
-
-        # Define an axes area and draw a slider in it
-        self.slider_ax  = self.fig.add_axes([0.23, 0.03, 0.67, 0.03])#, axisbg='blue')
-        self.slider = Slider(self.slider_ax, 'Plot', 1, 24, valinit=nr, valfmt='%i')
-        self.slider.on_changed(sliders_on_changed)
+        self.ax2 = plt.subplot(gs[-2:, -1])
+        self.ax3 = plt.subplot(gs[:-2, -1])
 
         # Make grid, colorbar and text on grid
-        self.cax = make_axes_locatable(self.ax1).append_axes("right", size="5%", pad="2%")
+        self.cax1 = make_axes_locatable(self.ax1).append_axes("right", size="3%", pad="30%")
+        self.cax2 = make_axes_locatable(self.ax1).append_axes("right", size="3%", pad="2%")
         self.fig.canvas.mpl_connect('pick_event', self.onpick)
         # self.gridtext = [
         #     self.ax1.text(i, j, int(self.model.grid[i, j].upslope), color='white', ha='center', va='center')
         #     for i, j in zip(*self.grid.nonzero())
         # ]
 
+        # Define an action for modifying the line when any slider's value changes
+        def sliders_on_changed(val):
+            self.nr = int(val)
+            self.model = self.models[self.nr - 1]
+            self.update()
+
+        # Define an axes area and draw a slider in it
+        self.slider_ax = self.fig.add_axes([0.23, 0.03, 0.67, 0.03])#, axisbg='blue')
+        self.slider = Slider(self.slider_ax, 'Plot', 1, 24, valinit=nr, valfmt='%i')
+        self.slider.on_changed(sliders_on_changed)
+
+        def change_param(param):
+            def fun(val):
+                params, _ = data.get_params()
+                params[param] = val
+                for model in models:
+                    model.params = params
+                    for cell in model.allVegetation:
+                        cell.update_params()
+            return fun
+
+        # Define an axes area and draw a slider in it
+        params, _ = data.get_params()
+        self.param_sliders = {}
+        for i, param in enumerate(['alpha', 'gamma', 'c_bb', 'c_rr', 'c_rb', 'c_br']):
+            self.slider_ax = self.fig.add_axes([0.05, 0.85-0.05*i, 0.15, 0.03])#, axisbg='blue')
+            self.param_sliders[param] = Slider(self.slider_ax, param, 0, 1, valinit=params[param], valfmt='%.2f')
+            self.param_sliders[param].on_changed(change_param(param))
+
     def onpick(self, event):
         N = len(event.ind)
         if not N: return True
 
         # Collect all cells from patch
-        patch = self.model.allVegetation[event.ind[0]].id
-        cells = [cell for cell in self.model.allVegetation if cell.patch == patch]
+        patch_id = self.model.allVegetation[event.ind[0]].id
+        cells = [cell for cell in self.model.allVegetation if cell.id == patch_id]
+        RL_biom = [cell.biomass for cell in cells if cell.cell_type == 'RL']
+        BR_biom = [cell.biomass for cell in cells if cell.cell_type == 'BR']
+        comp = -np.array([cell.grow_comp for cell in cells])
+        conn = np.array([cell.grow_conn_loc for cell in cells]) - 1
+        pos = np.array([cell.grow_pos for cell in cells]) - 1
 
         # Draw patch specific info
-        figi = plt.figure()
-        ax = figi.add_subplot(1, 1, 1)
-        ax.set_title(patch)
-        ax.hist([cell.biomass for cell in cells])
-        figi.show()
+        fig = plt.figure(figsize=(5, 6))
+        fig.suptitle(patch_id)
+        gs = GridSpec(5, 2)
+        ax1 = plt.subplot(gs[:-3, :])
+        ax2 = plt.subplot(gs[-2:, :-1])
+        ax3 = plt.subplot(gs[-2:, -1])
+
+        ax1.hist(comp, label='Competition')
+        ax1.hist(conn, label='Connectivity')
+        ax1.hist(pos, label='Position')
+        ax1.legend()
+        ax1.set_xlabel("Relative intensity")
+        ax1.set_title('Interaction mechanisms')
+
+        ax2.hist(RL_biom)
+        ax2.set_title("RL biomass")
+        ax3.hist(BR_biom)
+        ax3.set_title("BR biomass")
+
+        fig.show()
 
     def update(self):
-        self.grid = np.zeros((self.model.width, self.model.height))
-        for cell in self.model.vegetation["BR"]:
-            if cell.biomass >= 0.2171:
-                self.grid[cell.pos] = cell.biomass
-
         # removing old colorbar, updating grid and plotting new colorbar
-        self.cax.clear()
+        self.cax1.clear()
+        self.cax2.clear()
         # [t.remove() for t in self.gridtext]
         self.ax1.clear()
         self.ax2.clear()
         self.ax3.clear()
 
-        im = self.ax1.imshow(self.grid.T, cmap=plt.cm.Greens, norm=matplotlib.colors.LogNorm())
-        self.fig.colorbar(im, cax=self.cax)
+        # Setting all text right
+        self.fig.suptitle("Plot %i simulation at day %i" % (self.nr, (self.model.time - start_date).days))
+        self.ax1.set_title("Gridview")
+        self.ax1.set_ylabel('Biomass (g)')
+        self.ax2.set_xlabel("Day")
+        self.ax2.set_ylabel("Average biomass (g)")
+        self.ax3.set_title("Growth overview")
+        self.ax3.set_ylabel("Relative intensity mechanisms")
+
+        # Drawing plot
+        self.BR_grid = np.zeros((self.model.width, self.model.height))
+        for cell in self.model.vegetation["BR"]:
+            if cell.biomass >= 0.2: # Making sure seedlings don't distort picture
+                self.BR_grid[cell.pos] = cell.biomass
+        im2 = self.ax1.imshow(self.BR_grid.T, cmap=plt.cm.Greens, norm=matplotlib.colors.Normalize(vmin=0.0, vmax=0.6))
+        self.fig.colorbar(im2, cax=self.cax2)
+        self.cax2.tick_params(labelsize=7)
+
+        self.RL_grid = np.zeros((self.model.width, self.model.height))
+        for cell in self.model.vegetation["RL"]:
+            self.RL_grid[cell.pos] = cell.biomass
+        im1 = self.ax1.imshow(self.RL_grid.T, cmap=plt.cm.Reds, norm=matplotlib.colors.LogNorm(vmin=0.2, vmax=2))
+        self.fig.colorbar(im1, cax=self.cax1)
+        self.cax1.tick_params(labelsize=7)
+
 
         # Generate markers for mouse click events
         vegetation = [(*cell.pos, cell.biomass) for cell in self.model.allVegetation]
@@ -109,15 +163,14 @@ class Visualize(object):
         # self.ax2.plot(c1)
         # self.ax2.plot(c2)
 
+        self.ax3.errorbar(x, np.array(self.model.data['comp']), yerr = self.model.data['comp_std'],label = 'Competition')
+        self.ax3.errorbar(x, np.array(self.model.data['conn']) - 1, yerr = self.model.data['conn_std'], label = 'Connectivity')
+        self.ax3.errorbar(x, np.array(self.model.data['pos']) - 1, label = 'Position')#, yerr = self.model.data['pos_std'])
+        self.ax3.legend()
 
-        # self.ax2.errorbar(x, self.model.data['comp'], yerr = self.model.data['comp_std'],label = 'Competition')
-        # self.ax2.errorbar(x, self.model.data['conn'], yerr = self.model.data['conn_std'], label = 'Connectivity')
-        # self.ax2.errorbar(x, self.model.data['pos'], yerr = self.model.data['pos_std'], label = 'Position')
-        # self.ax2.legend()
-
-        # plotting effective biomass
-        self.ax3.imshow(self.model.RL_diff.T, cmap=plt.cm.Reds)
-        self.ax3.imshow(self.model.BR_diff.T, alpha=.5, cmap=plt.cm.Greens)
+        # # plotting effective biomass
+        # self.ax3.imshow(self.model.RL_diff.T, cmap=plt.cm.Reds)
+        # self.ax3.imshow(self.model.BR_diff.T, alpha=.5, cmap=plt.cm.Greens)
 
     def teardown(self):
         plt.ioff()

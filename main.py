@@ -5,6 +5,10 @@ from model import Model
 from visualisation import Visualize
 import data
 
+import matplotlib
+matplotlib.use('TkAgg')
+from matplotlib import pyplot as plt
+
 VIS_PLOT = 0
 params_model, patch_shape = data.get_params()
 plots = data.get_plots()
@@ -24,7 +28,7 @@ def run_models(models):
         for model in models:
             if t in data.measurements:
                 model.collect_data_fit()
-            model.step(t)
+            model.step()
     return
 
 def create_artificial_data():
@@ -89,11 +93,12 @@ if __name__ == "__main__":
         for t in data.daterange():
             print("Timestep %i" % data.get_timestep(t))
             for model in models:
-                model.step(t)
-                model.collect_data_vis()
+                model.step(visualize = True)
             if run_type == 'v' and data.get_timestep(t) % vis_steps == 0:
                 visualisation.update()
-                input("Press enter to continue simulation...")
+                res = input("Press enter to continue simulation, type 'q' to stop current run:\n\t")
+                if res == 'q':
+                    break
 
         visualisation.teardown()
 
@@ -102,4 +107,4 @@ if __name__ == "__main__":
         for t in data.daterange():
             print("Timestep %i" % data.get_timestep(t))
             for model in models:
-                model.step(t)
+                model.step()

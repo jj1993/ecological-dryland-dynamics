@@ -43,16 +43,20 @@ class Model(object):
         # initiate local and global connectivity measures
         self.updateConnectivity()
 
-    def step(self, day):
+    def step(self, visualize = False):
         '''
         Advance the model by one step.
         '''
+        [BR_cell.clone() for BR_cell in self.vegetation['BR']]
         self.allVegetation = self.vegetation['BR'] + self.vegetation['RL']
-        self.diffuse_biomass()
         np.random.shuffle(self.allVegetation)
+
+        self.diffuse_biomass()
         self.updateConnectivity()
-        for cell in self.allVegetation:
-            cell.step_cell()
+        [cell.step_cell() for cell in self.allVegetation]
+
+        if visualize:
+            self.collect_data_vis()
         self.time += datetime.timedelta(1)
 
     def updateConnectivity(self):
@@ -91,17 +95,16 @@ class Model(object):
         """
         biom_R = np.mean([cell.biomass for cell in self.vegetation["RL"]])
         biom_B = np.mean([cell.biomass for patch in self.patches for cell in patch.BR])
-        comp = np.mean([1 - cell.grow_comp / cell.biomass for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        comp = np.mean([cell.grow_comp for cell in self.vegetation["BR"] + self.vegetation["RL"]])
         pos = np.mean([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        conn = np.mean([cell.grow_conn for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        conn = np.mean([cell.grow_conn_loc for cell in self.vegetation["BR"] + self.vegetation["RL"]])
 
         nr_cells = len([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
         biom_R_std = np.std([cell.biomass for cell in self.vegetation["RL"]])
         biom_B_std = np.std([cell.biomass for patch in self.patches for cell in patch.BR])
         comp_std = np.std([1 - cell.grow_comp / cell.biomass for cell in self.vegetation["BR"] + self.vegetation["RL"]])
         pos_std = np.std([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        conn_std = np.std([cell.grow_conn for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        percent = np.mean([cell.grow_percent for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        conn_std = np.std([cell.grow_conn_loc for cell in self.vegetation["BR"] + self.vegetation["RL"]])
 
         self.data['biom_R'].append(biom_R)
         self.data['biom_B'].append(biom_B)
@@ -113,7 +116,6 @@ class Model(object):
         self.data['comp_std'].append(comp_std  / np.sqrt(nr_cells))
         self.data['pos_std'].append(pos_std  / np.sqrt(nr_cells))
         self.data['conn_std'].append(conn_std / np.sqrt(nr_cells))
-        self.data['percent'].append(percent)
         # TODO: Collect mortality and reproduction
 
     def diffuse_biomass(self):
