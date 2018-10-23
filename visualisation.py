@@ -12,10 +12,11 @@ matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
 
 class Visualize(object):
-    def __init__(self, models, nr):
+    def __init__(self, models):
+        self.params = data.get_params()[0]
         self.models = models
-        self.model = models[nr]
-        self.nr = nr
+        self.model = models[0]
+        self.nr = 1
 
         # Starting interactive matplotlib plot
         plt.ion()
@@ -50,15 +51,14 @@ class Visualize(object):
 
         def change_param(param):
             def fun(val):
-                params, _ = data.get_params()
-                params[param] = val
+                self.params[param] = val
                 for model in models:
-                    model.params = params
+                    model.params = self.params
                     for cell in model.allVegetation:
                         cell.update_params()
             return fun
 
-        # Define an axes area and draw a slider in it
+        # Define an axes area and draw sliders in it
         params, _ = data.get_params()
         self.param_sliders = {}
         for i, param in enumerate(['alpha', 'gamma', 'c_bb', 'c_rr', 'c_rb', 'c_br']):
@@ -163,7 +163,7 @@ class Visualize(object):
         # self.ax2.plot(c1)
         # self.ax2.plot(c2)
 
-        self.ax3.errorbar(x, np.array(self.model.data['comp']), yerr = self.model.data['comp_std'],label = 'Competition')
+        self.ax3.errorbar(x, -np.array(self.model.data['comp']), yerr = self.model.data['comp_std'],label = 'Competition')
         self.ax3.errorbar(x, np.array(self.model.data['conn']) - 1, yerr = self.model.data['conn_std'], label = 'Connectivity')
         self.ax3.errorbar(x, np.array(self.model.data['pos']) - 1, label = 'Position')#, yerr = self.model.data['pos_std'])
         self.ax3.legend()

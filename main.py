@@ -9,7 +9,6 @@ import matplotlib
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
 
-VIS_PLOT = 0
 params_model, patch_shape = data.get_params()
 plots = data.get_plots()
 
@@ -87,7 +86,7 @@ if __name__ == "__main__":
 
     if run_type == 'v':
         # set-up visualisation
-        visualisation = Visualize(models, VIS_PLOT)
+        visualisation = Visualize(models)
 
         # run models
         for t in data.daterange():
