@@ -1,4 +1,5 @@
 import datetime
+import math
 from collections import defaultdict
 from itertools import product
 import numpy as np
@@ -15,7 +16,7 @@ RUNOFF_RETURN = {
 FL_DIFF = 3
 
 class Model(object):
-    def __init__(self, nr, plot, params_model, patch_shape, seasonality):
+    def __init__(self, nr, plot, params_model, patch_shape, seasonalities, cover_data):
         self.nr = nr
         if nr in RUNOFF_RETURN.keys():
             self.runoff_return = True
@@ -23,8 +24,9 @@ class Model(object):
         else:
             self.runoff_return = False
         self.params = params_model
+        self.beta = params_model["beta"]
         self.patch_shape = patch_shape
-        self.seasonality = seasonality
+        self.seasonal_RL, self.seasonal_BR = seasonalities
         self.time = data.start_date
 
         # initiate grids
@@ -32,7 +34,8 @@ class Model(object):
         self.grid = np.empty((self.width, self.height), dtype=Cell)
         self.vegetation = {'BR' : [], 'RL' : []}
         self.data = defaultdict(list)
-        self.patch_data = defaultdict(list) # Can I remove this?
+        self.cover_measurements = []
+        self.cover_data = cover_data
 
         # initiate patches
         self.patches = []
@@ -54,6 +57,9 @@ class Model(object):
         self.diffuse_biomass()
         self.updateConnectivity()
         [cell.step_cell() for cell in self.allVegetation]
+
+        # Update RL zone-of-influence
+        [cell.biom_sigma_update() for cell in self.vegetation['RL']]
 
         if visualize:
             self.collect_data_vis()
@@ -87,33 +93,49 @@ class Model(object):
         Collects data for comparison with data on measurement points
         """
         for patch in self.patches:
-            patch.collect_biomass()
+            patch.collect_data()
 
     def collect_data_vis(self):
         """
         Collects data for visualisation in every timestep
         """
         biom_R = np.mean([cell.biomass for cell in self.vegetation["RL"]])
-        biom_B = np.mean([cell.biomass for patch in self.patches for cell in patch.BR])
-        comp = np.mean([cell.grow_comp for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        pos = np.mean([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        conn = np.mean([cell.grow_conn_loc for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        biom_B = np.mean([cell.biomass for cell in self.vegetation["BR"]])
+        comp_RL = np.mean([cell.grow_comp for cell in self.vegetation['RL']])
+        comp_BR = np.mean([cell.grow_comp for cell in self.vegetation['BR']])
+        pos = np.mean([cell.grow_pos for cell in self.allVegetation])
+        conn = np.mean([cell.grow_conn_loc for cell in self.allVegetation])
 
-        nr_cells = len([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        biom_R_std = np.std([cell.biomass for cell in self.vegetation["RL"]])
+        biom_B_measured, biom_R_measured = [], []
+        for patch in self.patches:
+            if patch.has_data:
+                if not 'R' in patch.type:
+                    biom_B_measured.append(np.sum([cell.biomass for cell in patch.BR_original])/(9*patch.factor))
+                if not 'B' in patch.type:
+                    biom_R_measured.append(np.sum([cell.biomass for cell in patch.RL])/patch.factor)
+        biom_B_measured = np.mean(biom_B_measured)
+        biom_R_measured = np.mean(biom_R_measured)
+
+        nr_cells = len([cell.grow_pos for cell in self.allVegetation])
+        biom_R_std = np.std([cell.biomass for cell in self.allVegetation])
         biom_B_std = np.std([cell.biomass for patch in self.patches for cell in patch.BR])
-        comp_std = np.std([1 - cell.grow_comp / cell.biomass for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        pos_std = np.std([cell.grow_pos for cell in self.vegetation["BR"] + self.vegetation["RL"]])
-        conn_std = np.std([cell.grow_conn_loc for cell in self.vegetation["BR"] + self.vegetation["RL"]])
+        comp_RL_std = np.std([cell.grow_comp for cell in self.vegetation['RL']])
+        comp_BR_std = np.std([cell.grow_comp for cell in self.vegetation['BR']])
+        pos_std = np.std([cell.grow_pos for cell in self.allVegetation])
+        conn_std = np.std([cell.grow_conn_loc for cell in self.allVegetation])
 
         self.data['biom_R'].append(biom_R)
         self.data['biom_B'].append(biom_B)
-        self.data['comp'].append(comp)
+        self.data['biom_R_measured'].append(biom_R_measured)
+        self.data['biom_B_measured'].append(biom_B_measured)
+        self.data['comp_RL'].append(comp_RL)
+        self.data['comp_BR'].append(comp_BR)
         self.data['pos'].append(pos)
         self.data['conn'].append(conn)
         self.data['biom_R_std'].append(biom_R_std  / np.sqrt(nr_cells))
         self.data['biom_B_std'].append(biom_B_std  / np.sqrt(nr_cells))
-        self.data['comp_std'].append(comp_std  / np.sqrt(nr_cells))
+        self.data['comp_RL_std'].append(comp_RL_std  / np.sqrt(nr_cells))
+        self.data['comp_BR_std'].append(comp_BR_std  / np.sqrt(nr_cells))
         self.data['pos_std'].append(pos_std  / np.sqrt(nr_cells))
         self.data['conn_std'].append(conn_std / np.sqrt(nr_cells))
         # TODO: Collect mortality and reproduction
@@ -147,13 +169,13 @@ class Model(object):
                 biomass = None
                 if has_data:
                     label = patch_id + cell_type[0]
-                    try:
+                    if label in biomass_data.keys():
+                        # Some plants have been removed from dataset or not been measured in reality
                         biomass = biomass_data[label][0]
-                        if np.isnan(biomass):
+                        if math.isnan(biomass):
                             biomass = self.params["R_biom"]
-                    except:
-                        # No data available although individual is supposed to be measured
-                        # (05RP2 patch has not been measured, this is a mistake. Exclusion individuals are also not in data)
+                    else:
+                        has_data = False
                         biomass = self.params["R_biom"]
                 new_cell = RL_cell(self, self.grid, coor_ext, patch_id, has_data, biomass)
                 RL_cells.append(new_cell)
@@ -165,6 +187,14 @@ class Model(object):
                     BR_cells.append(new_cell)
 
         self.patches.append(Patch(self, patch_id, RL_cells, BR_cells, has_data))
+
+    def collect_cover(self):
+        # Calculate the relative cover of a modelled plot
+        N = self.width * self.height
+        RL_area = sum([10.11 * cell.biomass ** 0.5435 for cell in self.vegetation['RL']])
+        BR_area = len([cell for cell in self.vegetation['BR']])
+
+        self.cover_measurements.append((RL_area + BR_area) / N)
 
 def diffuse(grid, sigma):
     size = sigma*2 + 1

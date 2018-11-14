@@ -9,12 +9,7 @@ from matplotlib import pyplot as plt
 percentile = 5
 fname = "../results/patchsize.txt"
 
-def get_size(patch):
-    BR_cells = patch.BR_original + patch.BR
-    positions = [cell.pos[0] for cell in BR_cells]
-    upper = np.percentile(positions, 100 - .5*percentile)
-    lower = np.percentile(positions, .5*percentile)
-    return upper - lower
+
 
 if __name__ == '__main__':
     artificial = False

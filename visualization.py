@@ -5,9 +5,11 @@ import numpy as np
 from matplotlib.gridspec import GridSpec
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 from matplotlib.widgets import Slider, Button, RadioButtons
+import scipy.interpolate as inter
 
 import data
 from data import start_date
+
 matplotlib.use('TkAgg')
 from matplotlib import pyplot as plt
 
@@ -30,8 +32,7 @@ class Visualize(object):
         self.ax3 = plt.subplot(gs[:-2, -1])
 
         # Make grid, colorbar and text on grid
-        self.cax1 = make_axes_locatable(self.ax1).append_axes("right", size="3%", pad="30%")
-        self.cax2 = make_axes_locatable(self.ax1).append_axes("right", size="3%", pad="2%")
+        self.cax1 = make_axes_locatable(self.ax1).append_axes("right", size="3%", pad="2%")
         self.fig.canvas.mpl_connect('pick_event', self.onpick)
         # self.gridtext = [
         #     self.ax1.text(i, j, int(self.model.grid[i, j].upslope), color='white', ha='center', va='center')
@@ -46,7 +47,7 @@ class Visualize(object):
 
         # Define an axes area and draw a slider in it
         self.slider_ax = self.fig.add_axes([0.23, 0.03, 0.67, 0.03])#, axisbg='blue')
-        self.slider = Slider(self.slider_ax, 'Plot', 1, 24, valinit=nr, valfmt='%i')
+        self.slider = Slider(self.slider_ax, 'Plot', 1, 24, valinit=self.nr, valfmt='%i')
         self.slider.on_changed(sliders_on_changed)
 
         def change_param(param):
@@ -75,7 +76,8 @@ class Visualize(object):
         cells = [cell for cell in self.model.allVegetation if cell.id == patch_id]
         RL_biom = [cell.biomass for cell in cells if cell.cell_type == 'RL']
         BR_biom = [cell.biomass for cell in cells if cell.cell_type == 'BR']
-        comp = -np.array([cell.grow_comp for cell in cells])
+        comp_RL = -np.array([cell.grow_comp for cell in cells if cell.cell_type == 'RL'])
+        comp_BR = -np.array([cell.grow_comp for cell in cells if cell.cell_type == 'BR'])
         conn = np.array([cell.grow_conn_loc for cell in cells]) - 1
         pos = np.array([cell.grow_pos for cell in cells]) - 1
 
@@ -87,7 +89,8 @@ class Visualize(object):
         ax2 = plt.subplot(gs[-2:, :-1])
         ax3 = plt.subplot(gs[-2:, -1])
 
-        ax1.hist(comp, label='Competition')
+        ax1.hist(comp_RL, label='RL competition')
+        ax1.hist(comp_BR, label='BR competition')
         ax1.hist(conn, label='Connectivity')
         ax1.hist(pos, label='Position')
         ax1.legend()
@@ -102,9 +105,9 @@ class Visualize(object):
         fig.show()
 
     def update(self):
+        # TODO: why difference in biomass between FIT and VIS?
         # removing old colorbar, updating grid and plotting new colorbar
         self.cax1.clear()
-        self.cax2.clear()
         # [t.remove() for t in self.gridtext]
         self.ax1.clear()
         self.ax2.clear()
@@ -122,18 +125,17 @@ class Visualize(object):
         # Drawing plot
         self.BR_grid = np.zeros((self.model.width, self.model.height))
         for cell in self.model.vegetation["BR"]:
-            if cell.biomass >= 0.2: # Making sure seedlings don't distort picture
+            if cell.biomass >= 0.021: # Making sure seedlings don't distort picture
                 self.BR_grid[cell.pos] = cell.biomass
-        im2 = self.ax1.imshow(self.BR_grid.T, cmap=plt.cm.Greens, norm=matplotlib.colors.Normalize(vmin=0.0, vmax=0.6))
-        self.fig.colorbar(im2, cax=self.cax2)
-        self.cax2.tick_params(labelsize=7)
-
-        self.RL_grid = np.zeros((self.model.width, self.model.height))
-        for cell in self.model.vegetation["RL"]:
-            self.RL_grid[cell.pos] = cell.biomass
-        im1 = self.ax1.imshow(self.RL_grid.T, cmap=plt.cm.Reds, norm=matplotlib.colors.LogNorm(vmin=0.2, vmax=2))
+        self.BR_grid[self.BR_grid < 0.021] = 0.001
+        im1 = self.ax1.imshow(self.BR_grid.T, cmap=plt.cm.Greens, norm=matplotlib.colors.LogNorm(vmin=0.001, vmax=0.6))
         self.fig.colorbar(im1, cax=self.cax1)
         self.cax1.tick_params(labelsize=7)
+
+        self.RL_grid = np.zeros((self.model.width, self.model.height))
+        RL_scatter = [(cell.pos, cell.biomass) for cell in self.model.vegetation["RL"]]
+        for pos, biom in RL_scatter:
+            self.ax1.scatter(*pos, facecolors='none', s=80*biom, edgecolors='r')
 
 
         # Generate markers for mouse click events
@@ -142,15 +144,29 @@ class Visualize(object):
         self.ax1.plot(x, y, ',', alpha=0, picker=2)
         self.fig.canvas.mpl_connect('pick_event', self.onpick)
 
-        # self.gridtext = [
-        #     self.ax1.text(i, j, int(self.model.grid[i, j].upslope), color='white', ha='center', va='center')
-        #     for i, j in zip(*self.grid.nonzero())
-        # ]
+        self.gridtext = [
+            self.ax1.text(*(patch.RL+patch.BR_original)[0].pos, '*', color='black', ha='center', va='center', fontsize=15)
+            for patch in self.model.patches if patch.has_data
+        ]
 
         # plotting biomass
-        x = range(len(self.model.data['biom_R']))
-        self.ax2.errorbar(x, self.model.data['biom_R'], yerr = self.model.data['biom_R_std'], label = "RL (%i)"%len(self.model.vegetation["RL"]))
-        self.ax2.errorbar(x, self.model.data['biom_B'], yerr = self.model.data['biom_B_std'], label = "BR (%i)"%len(self.model.vegetation["BR"]))
+        RL_mean, BR_mean, RL_measure, BR_measure, dates = self.get_biom_averages()
+        day = len(self.model.data['biom_R'])
+        x = range(day)
+        self.ax2.plot(RL_mean, label="RL data", linestyle=':', color='r')
+        self.ax2.plot(BR_mean, label="BR data", linestyle=':', color='g')
+        self.ax2.scatter(dates, RL_measure, color='r')
+        self.ax2.scatter(dates, BR_measure, color='g')
+        self.ax2.errorbar(x, self.model.data['biom_R_measured'], color='r',
+                      label="RL measured (%i)" % len([c for c in self.model.vegetation["RL"] if c.has_data])
+                      )
+        self.ax2.errorbar(x, np.array(self.model.data['biom_B_measured']), color='g',
+                      label="BR measured (%i)" % (len([c for c in self.model.vegetation["BR"] if c.has_data])/9)
+                      )
+        # self.ax2.errorbar(x, self.model.data['biom_R'], yerr = self.model.data['biom_R_std'],
+        #                   label = "RL all (%i)" % len(self.model.vegetation["RL"]))
+        # self.ax2.errorbar(x, np.array(self.model.data['biom_B'])*9, yerr = np.array(self.model.data['biom_B_std'])*9,
+        #                   label = "BR all (%i)" % (len(self.model.vegetation["BR"])/9))
         self.ax2.legend()
 
         # p = self.model.BR
@@ -163,7 +179,8 @@ class Visualize(object):
         # self.ax2.plot(c1)
         # self.ax2.plot(c2)
 
-        self.ax3.errorbar(x, -np.array(self.model.data['comp']), yerr = self.model.data['comp_std'],label = 'Competition')
+        self.ax3.errorbar(x, -np.array(self.model.data['comp_RL']), yerr = self.model.data['comp_RL_std'],label = 'RL experienced competition')
+        self.ax3.errorbar(x, -np.array(self.model.data['comp_BR']), yerr = self.model.data['comp_BR_std'],label = 'BR experienced competition')
         self.ax3.errorbar(x, np.array(self.model.data['conn']) - 1, yerr = self.model.data['conn_std'], label = 'Connectivity')
         self.ax3.errorbar(x, np.array(self.model.data['pos']) - 1, label = 'Position')#, yerr = self.model.data['pos_std'])
         self.ax3.legend()
@@ -174,3 +191,23 @@ class Visualize(object):
 
     def teardown(self):
         plt.ioff()
+
+    def get_biom_averages(self):
+        RL, BR = [], []
+        for patch in self.model.patches:
+            RL.append(patch.RL_data / patch.factor)
+            BR.append(patch.BR_data / (patch.factor * 9))
+        RL, BR = np.array(RL), np.array(BR)
+        RL.flat[RL.flat == 0] = np.nan
+        BR.flat[BR.flat == 0] = np.nan
+        RL_mean = np.nanmean(RL, axis=0)
+        BR_mean = np.nanmean(BR, axis=0)
+
+        t = [(date - start_date).days for date in data.daterange()]
+        dates = [(measurement - start_date).days for measurement in data.measurements]
+        RL_spline = inter.InterpolatedUnivariateSpline(dates, RL_mean, k=2)
+        BR_spline = inter.InterpolatedUnivariateSpline(dates, BR_mean, k=2)
+
+        return RL_spline(t), BR_spline(t), RL_mean, BR_mean, dates
+
+

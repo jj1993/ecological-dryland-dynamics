@@ -11,4 +11,4 @@ def f_conn(FL_loc, FL_glob, FL_glob_max, FL_loc_max, beta, gamma):
     return (1 - glob), (1 + loc)
 
 def f_comp(RL_eff, BR_eff, c_ir, c_ib):
-    return RL_eff * c_ir + BR_eff * c_ib
+    return 2000 * RL_eff * c_ir, 600 * BR_eff * c_ib

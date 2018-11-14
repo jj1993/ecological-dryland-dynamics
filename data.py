@@ -16,9 +16,17 @@ measurement_strings = [
     "14-Feb-18",
     "24-May-18"
 ]
+drone_strings = [
+    "08-Mar-17",
+    "01-Aug-17",
+    "01-Oct-17",
+    "01-Feb-18",
+    "01-Apr-18"
+]
 measurements = [datetime.strptime(date, date_format) for date in measurement_strings]
+drone_dates = [datetime.strptime(date, date_format) for date in drone_strings]
 start_date = measurements[0]
-end_date = measurements[-1]
+end_date = measurements[1]
 
 def daterange():
     for n in range((end_date - start_date).days + 1):
@@ -27,21 +35,23 @@ def daterange():
 def get_timestep(day):
     return (day - start_date).days
 
-def get_seasonality():
-    fname = "../data/seasonal.csv"
+def get_seasonality(double):
+    loc = "../data/"
+    if double:
+        RL_fname, BR_fname = "seasonal_RL_double.dict", "seasonal_BR_double.dict"
+    else:
+        RL_fname, BR_fname = "seasonal_RL.dict", "seasonal_BR.dict"
 
-    df = pd.read_csv(fname,delimiter=',', decimal='.')
-    season_dict = dict(zip(
-        [datetime.strptime(date, date_format) for date in df['Date']],
-        df['NDVI/growth']
-    ))
+    pickle_obj = open(loc + RL_fname, "rb")
+    seasonal_RL = pickle.load(pickle_obj)
+    pickle_obj.close()
 
-    # TODO: get complete seasonal data
-    for date in daterange():
-        if not date in season_dict:
-            season_dict[date] = df['NDVI/growth'][0]
 
-    return season_dict
+    pickle_obj = open(loc + BR_fname, "rb")
+    seasonal_BR = pickle.load(pickle_obj)
+    pickle_obj.close()
+
+    return seasonal_RL, seasonal_BR
 
 def get_timestamps():
     measurements = []
@@ -54,9 +64,16 @@ def get_timestamps():
 
     return measurements
 
+def get_covers():
+    fname = "../data/cover_data.csv"
+    df = pd.read_csv(fname, delimiter=',', decimal='.')
+    cover_data = df.ix[:,["% Cover MAY17", "% Cover AG17", "% Cover OCT17", "% Cover FEB18", "% Cover ABR18"]].values
+
+    return cover_data/100
+
 def get_data():
     fname = "../data/talud_data.csv"
-    df = pd.read_csv(fname,delimiter=',', decimal=',')
+    df = pd.read_csv(fname, delimiter=',', decimal=',')
     biomass_data = df.ix[:,['B1', 'B2', 'B3', 'B4', 'B5']].values
     patchsize_data = df.ix[:,['D_1', 'D_2', 'D_3', 'D_4.1', 'D_5.1']].values
 
@@ -70,25 +87,24 @@ def get_data():
     for i, label in enumerate(labels):
         # Update biomass dict first
         b = biomass_data[i]
-        # A Brachy individual contains 9 ramets, data gives biomass for only 1
+        # A Brachy individual contains 9 rammets, data gives biomass for only 1
         if label[-1] == 'B':
             b *= 9
         if label in biom_dict:
-            for i, (d_old, d_new) in enumerate(zip(biom_dict[label], b)):
+            for j, (d_old, d_new) in enumerate(zip(biom_dict[label], b)):
                 if d_old == np.nan:
-                    biom_dict[label][i] = d_new
+                    biom_dict[label][j] = d_new
                 elif d_new == np.nan:
                     continue
                 else:
-                    biom_dict[label][i] = (d_old + d_new)/2
+                    biom_dict[label][j] = (d_old + d_new)/2
         else:
             biom_dict[label] = b
 
-        # Update patchsize dict
+        # Update patchsize dict second
         # TODO: how to treat patch sizes N1-N3? What to do with N4?
-        s = patchsize_data[i]
         if label[-1] == 'B':
-            size_dict[label] = s
+            size_dict[label] = patchsize_data[i]
 
     return biom_dict, size_dict, exclusions
 
@@ -107,6 +123,9 @@ def get_params():
     params_model['FL_loc_max'] = 2738 # Value from parameter_boundaries file
     config_patch_shape = "patch_shape.json"
     patch_shape = json.load(open(config_patch_shape))
+
+    # TODO: agree on BR growthrate
+    params_model['B_g'] /= 5
 
     return params_model, patch_shape
 
@@ -143,7 +162,7 @@ def get_plots():
     return plots
 
 def assign_data(models, artificial = False):
-    # Collcet data
+    # Collect data
     biom_data, size_data, exclusions = get_data()
     if artificial:
         biom_data = get_artificial_biomass()
