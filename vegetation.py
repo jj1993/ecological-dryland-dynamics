@@ -111,15 +111,15 @@ class Cell(object):
 
         x_min, x_max = max(x - self.biom_sigma, 0), min(x + self.biom_sigma + 1, self.model.width + 1)
         y_min, y_max = max(y - self.biom_sigma, 0), min(y + self.biom_sigma + 1, self.model.height + 1)
-        RL_eff = np.sum(self.mask * self.model.RL_diff[x_min:x_max, y_min:y_max])
-        BR_eff = np.sum(self.mask * self.model.BR_diff[x_min:x_max, y_min:y_max])
+        self.RL_eff = np.sum(self.mask * self.model.RL_diff[x_min:x_max, y_min:y_max])
+        self.BR_eff = np.sum(self.mask * self.model.BR_diff[x_min:x_max, y_min:y_max])
 
         # Compute growth factor
         self.grow_pos = f_pos(y, self.alpha, self.cell_size)
         self.grow_conn_glob, self.grow_conn_loc = f_conn(
             self.FL, self.model.FL, self.FL_glob_max, self.FL_loc_max, self.model.beta, self.gamma
         )
-        self.grow_comp = sum(f_comp(RL_eff, BR_eff, self.c_ir, self.c_ib))
+        self.grow_comp = sum(f_comp(self.RL_eff, self.BR_eff, self.c_ir, self.c_ib))
         # if self.cell_type == 'BR':
         #     shape = 4
         #     fact = self.biomass * np.exp(-self.biomass * np.log(self.K * shape) / self.K) * shape

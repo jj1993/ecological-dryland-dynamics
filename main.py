@@ -209,10 +209,36 @@ if __name__ == "__main__":
         """
         Run model in plain-mode
         """
+
         # set-up models
         models = initiate_models(params_model)
         data.assign_data(models)
-        run_models(models)
 
-# TODO: Carrying capacity BR again!! Should be lower
-#
+        BR_eff, RL_eff, BR_ave, RL_ave = [], [], [], []
+        for t in data.daterange():
+            print(t)
+            for model in models:
+                model.step()
+                # Collect effective biomasses for every measurement time
+            if t in data.measurements:
+                BR, RL, BR_std, RL_std = [], [], [], []
+                for model in models:
+                    for patch in model.patches:
+                        # Only look at mixed patches
+                        if 'M' in patch.id:
+                            BR += [cell.BR_eff for cell in patch.BR_original + patch.RL]
+                            RL += [cell.RL_eff for cell in patch.BR_original + patch.RL]
+                            BR_std += [cell.biomass for cell in patch.BR_original]
+                            RL_std += [cell.biomass for cell in patch.RL]
+
+                BR_eff.append(np.nanmean(BR))
+                RL_eff.append(np.nanmean(RL))
+                BR_ave.append(np.nanmean(BR_std))
+                RL_ave.append(np.nanmean(RL_std))
+
+        print(BR_eff, RL_eff)
+        print(BR_ave, RL_ave)
+
+        plt.scatter(BR_eff, BR_ave)
+        plt.scatter(RL_eff, RL_ave)
+        plt.show()

@@ -26,7 +26,7 @@ drone_strings = [
 measurements = [datetime.strptime(date, date_format) for date in measurement_strings]
 drone_dates = [datetime.strptime(date, date_format) for date in drone_strings]
 start_date = measurements[0]
-end_date = measurements[1]
+end_date = measurements[-1]
 
 def daterange():
     for n in range((end_date - start_date).days + 1):

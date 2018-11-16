@@ -42,7 +42,7 @@ def get_subset_loss(subsets, t):
         RL_diff.append(np.mean(RL_patch))
         BR_diff.append(np.mean(BR_patch))
 
-    return np.nansum(RL_diff), np.nansum(BR_diff)
+    return np.nanmean(RL_diff), np.nanmean(BR_diff)
 
 def get_diameter_loss(patches):
     t = 4

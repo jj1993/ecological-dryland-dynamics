@@ -15,6 +15,12 @@ RUNOFF_RETURN = {
 }
 FL_DIFF = 3
 
+# Calculating factor for total FL calculation
+A = np.zeros((7, 7))
+A[3, 3] = 1
+A = gaussian_filter(A, sigma=FL_DIFF / 2)
+FL_FACT = np.sum(A[3, :])
+
 class Model(object):
     def __init__(self, nr, plot, params_model, patch_shape, seasonalities, cover_data):
         self.nr = nr
@@ -66,7 +72,7 @@ class Model(object):
         self.time += datetime.timedelta(1)
 
     def updateConnectivity(self):
-        # Collect all flowlengths
+        # Collect all flowlengths of individuals
         self.FL_diff = np.zeros((self.width, self.height))
         for cell in self.allVegetation:
             this_x, this_y = cell.pos
@@ -82,8 +88,18 @@ class Model(object):
         # Diffuse flowlengths over 2 sigma = 3 cells
         self.FL_diff = gaussian_filter(self.FL_diff, sigma= FL_DIFF / 2)
 
-        # Save all flowlengths correctly and collect global flowlength
+        # Collect all flowlengths for bottom row
         self.FL = 0
+        for x, cell in enumerate(self.grid[:,-1]):
+            if cell == None:
+                for y in reversed(range(self.height)):
+                    if self.grid[x, y] != None:
+                        self.FL += FL_FACT * get_FL(self.height - y)
+                        break
+                else:
+                    self.FL += FL_FACT * get_FL(self.height)
+
+        # Save all flowlengths correctly and add individuals FL to total FL
         for cell in self.allVegetation:
             cell.FL = self.FL_diff[cell.pos]
             self.FL += cell.FL

@@ -37,13 +37,13 @@ if __name__ == "__main__":
 
     # Initiate dictionary to keep track of results
     keys = ["%i%s" % (i, cell_type) for cell_type in cell_types for i in RUNOFF_RETURN.values()]
-    for alpha_fact, gamma_fact in product([0,1,2], repeat=2):
+    for alpha, gamma in product([0, .25, .5], repeat=2):
         settings = Manager().dict()
         for key in keys:
             settings[key] = (init_beta, 0, 0)
 
         for b in range(res):
-            print("Simulation step %i"%(b+1))
+            print("Simulation step %i for alpha %.2f gamma %.2f"%(b+1, alpha, gamma))
             # Update beta settings
             step_size = init_beta * 0.5 ** b
             for key in settings.keys():
@@ -56,8 +56,8 @@ if __name__ == "__main__":
             for cell_type in cell_types:
                 # Initiate models without runoff return
                 params, _ = data.get_params()
-                params["alpha"] *= alpha_fact
-                params["gamma"] *= gamma_fact
+                params["alpha"] = alpha
+                params["gamma"] = gamma
                 models = [model for model in initiate_models(params) if not model.runoff_return]
 
                 # Run models and collect differences
@@ -73,5 +73,6 @@ if __name__ == "__main__":
 
         # Save results for analysis
         D = [settings[key] for key in keys]
-        name = "%s%s_alpha%i_gamma%i.txt"%(loc, fname, alpha_fact, gamma_fact)
+        name = "%s%s_alpha%i_gamma%i.txt"%(loc, fname, alpha, gamma)
+        print(name)
         np.savetxt(name, D)
